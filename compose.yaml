@@ -19,7 +19,7 @@ services:
     hostname: sinkinator
     image: ghcr.io/kumocorp/kumomta:main
     volumes:
-      - ./policy:/opt/kumomta/etc/policy
+      - ./policy:/opt/kumomta/etc/policy:ro
       - ./spool/data:/var/spool/kumomta/data
       - ./spool/meta:/var/spool/kumomta/meta
     restart: unless-stopped
@@ -28,3 +28,4 @@ services:
     environment:
       - SINK_DATA=/opt/kumomta/etc/policy/responses.toml
       - SINK_SPOOL=/var/spool/kumomta
+    user: "root"
