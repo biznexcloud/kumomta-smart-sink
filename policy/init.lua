@@ -1,18 +1,19 @@
 -- This config acts as a sink that will discard all received mail
 local kumo = require 'kumo'
-package.path = 'assets/?.lua;' .. package.path
+package.path = package.path .. ';/opt/kumomta/share/?.lua'
 local utils = require 'policy-extras.policy_utils'
 
 local SINK_DATA_FILE = os.getenv 'SINK_DATA'
   or '/opt/kumomta/etc/policy/responses.toml'
 
 -- Resolve our hostname, then derive the docker network from that.
--- This assumes that the network is a /24 and that HOSTNAME is
--- injected by docker and resolves to the container IP on that network
 local function resolve_docker_network()
-  local MY_IPS = kumo.dns.lookup_addr(os.getenv 'HOSTNAME' or 'localhost')
-  local DOCKER_NETWORK = string.match(MY_IPS[1], '^(.*)%.%d+$') .. '.0/24'
-  return DOCKER_NETWORK
+  local hostname = os.getenv 'HOSTNAME' or 'localhost'
+  local MY_IPS = kumo.dns.lookup_addr(hostname)
+  if MY_IPS and MY_IPS[1] then
+    return string.match(MY_IPS[1], '^(.*)%.%d+$') .. '.0/24'
+  end
+  return '172.17.0.0/16'  -- safe fallback
 end
 
 kumo.on('init', function()
@@ -22,7 +23,6 @@ kumo.on('init', function()
   local SINK_PORT = os.getenv 'SINK_PORT' or '25'
   kumo.start_esmtp_listener {
     listen = '0:' .. SINK_PORT,
-    -- Explicitly an open relay, because we want to sink everything
     relay_hosts = { '0.0.0.0/0' },
     banner = 'This system will sink and discard all mail',
   }
@@ -33,10 +33,6 @@ kumo.on('init', function()
     trusted_hosts = { '127.0.0.1', '::1', DOCKER_NETWORK },
   }
 
-  -- Define spool locations
-  -- This is unused by this config, but we are required to
-  -- define a default spool location.
-
   local spool_dir = os.getenv 'SINK_SPOOL' or '/var/spool/kumomta'
 
   for _, name in ipairs { 'data', 'meta' } do
@@ -45,12 +41,8 @@ kumo.on('init', function()
       path = spool_dir .. '/' .. name,
     }
   end
-
-  -- No logs are configured: we don't need them
 end)
 
--- Load and parse the responses.toml data and resolve the configuration
--- for a given domain
 local function load_data_for_domain(domain)
   local data = kumo.toml_load(SINK_DATA_FILE)
   local config = data.domain[domain] or data.default
@@ -59,7 +51,6 @@ local function load_data_for_domain(domain)
   return config
 end
 
--- Cache the result of a load_data_for_domain call
 local resolve_domain = kumo.memoize(load_data_for_domain, {
   name = 'response-data-cache',
   ttl = '1 hour',
@@ -69,7 +60,6 @@ local resolve_domain = kumo.memoize(load_data_for_domain, {
 kumo.on('smtp_server_message_received', function(msg)
   local recipient = msg:recipient()
 
-  -- Do any special responses requested by the client
   if string.find(recipient.user, 'tempfail') then
     kumo.reject(400, 'tempfail requested')
   end
@@ -84,7 +74,6 @@ kumo.on('smtp_server_message_received', function(msg)
     return
   end
 
-  -- Now any general bounce responses based on the toml file
   local domain = recipient.domain
   local config = resolve_domain(domain)
 
@@ -101,12 +90,9 @@ kumo.on('smtp_server_message_received', function(msg)
     kumo.reject(choice.code, choice.msg)
   end
 
-  -- Finally, accept and discard any messages that haven't
-  -- been rejected already
   msg:set_meta('queue', 'null')
 end)
 
 kumo.on('http_message_generated', function(msg)
-  -- Accept and discard all messages
   msg:set_meta('queue', 'null')
 end)

@@ -1,13 +1,30 @@
+# services:
+#   sink:
+#     container_name: kumo-sink
+#     hostname: sinkinator
+#     # use the latest build from `main`
+#     image: ghcr.io/kumocorp/kumomta:main
+#     # alternatively, use the latest stable release
+#     #image: ghcr.io/kumocorp/kumomta:latest
+#     volumes:
+#       - ./policy:/opt/kumomta/etc/policy
+#     restart: unless-stopped
+#     ports:
+#       - 2525:25
+
+
 services:
   sink:
     container_name: kumo-sink
     hostname: sinkinator
-    # use the latest build from `main`
     image: ghcr.io/kumocorp/kumomta:main
-    # alternatively, use the latest stable release
-    #image: ghcr.io/kumocorp/kumomta:latest
     volumes:
       - ./policy:/opt/kumomta/etc/policy
+      - ./spool/data:/var/spool/kumomta/data
+      - ./spool/meta:/var/spool/kumomta/meta
     restart: unless-stopped
     ports:
       - 2525:25
+    environment:
+      - SINK_DATA=/opt/kumomta/etc/policy/responses.toml
+      - SINK_SPOOL=/var/spool/kumomta
